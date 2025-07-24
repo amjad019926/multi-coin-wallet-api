@@ -199,5 +199,67 @@ app.get("/dashboard/:coin/:address", async (req, res) => {
   }
 });
 
+app.post("/send", async (req, res) => {
+  const { mnemonic, coin, network, to, amount, index = 0 } = req.body;
+  try {
+    if (coin === "usdt" && ["eth", "bnb"].includes(network)) {
+      const provider = new ethers.JsonRpcProvider(
+        network === "eth"
+          ? "https://ethereum.publicnode.com"
+          : "https://bsc.publicnode.com"
+      );
+      const hd = HDNodeWallet.fromMnemonic(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+      const signer = new ethers.Wallet(hd.privateKey, provider);
+      const usdt = new ethers.Contract(usdtContracts[network], ["function transfer(address,uint256) returns (bool)"], signer);
+      const tx = await usdt.transfer(to, ethers.parseUnits(amount, 6));
+      return res.json({ hash: tx.hash });
+    }
+
+    if (coin === "usdt" && network === "trx") {
+      const tron = bip39.mnemonicToSeedSync(mnemonic);
+      const node = bip32.fromSeed(tron);
+      const child = node.derivePath(pathMap.trx + `/${index}`);
+      const privateKey = child.privateKey.toString("hex");
+      const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io", privateKey });
+      const contract = await tronWeb.contract().at(usdtContracts.trx);
+      const result = await contract.transfer(to, amount * 1e6).send();
+      return res.json({ hash: result });
+    }
+
+    if (["eth", "bnb"].includes(coin)) {
+      const provider = new ethers.JsonRpcProvider(
+        coin === "eth"
+          ? "https://ethereum.publicnode.com"
+          : "https://bsc.publicnode.com"
+      );
+      const hd = HDNodeWallet.fromMnemonic(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+      const signer = new ethers.Wallet(hd.privateKey, provider);
+      const tx = await signer.sendTransaction({
+        to,
+        value: ethers.parseEther(amount)
+      });
+      return res.json({ hash: tx.hash });
+    }
+
+    if (coin === "trx") {
+      const node = bip32.fromSeed(await bip39.mnemonicToSeed(mnemonic));
+      const child = node.derivePath(pathMap.trx + `/${index}`);
+      const tronWeb = new TronWeb({
+        fullHost: "https://api.trongrid.io",
+        privateKey: child.privateKey.toString("hex")
+      });
+      const tx = await tronWeb.trx.sendTransaction(to, amount * 1e6);
+      return res.json({ hash: tx.txID });
+    }
+
+    res.status(400).json({ error: "Unsupported transfer type" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log("Wallet API running on port", port));
