@@ -209,7 +209,7 @@ app.get("/dashboard/:coin/:address", async (req, res) => {
 app.post("/send", async (req, res) => {
   const { mnemonic, coin, network, to, amount, index = 0 } = req.body;
   try {
-    if (coin === "usdt" && ["eth", "bnb"].includes(network)) {
+    if (coin === "usdt" && ["eth", "bnb"].includes(network)) {   const provider = new ethers.JsonRpcProvider(     network === "eth"       ? "https://ethereum.publicnode.com"       : "https://bsc.publicnode.com"   );    const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(`44'/60'/0'/0/${index}`);   const signer = new ethers.Wallet(hd.privateKey, provider);    const usdt = new ethers.Contract(     usdtContracts[network],     ["function transfer(address,uint256) returns (bool)"],     signer   );    // Set gasPrice to 80% of current   const gasPrice = await provider.getGasPrice();   const reducedGasPrice = gasPrice.mul(80).div(100); // reduce by 20%    // Fixed gas limit   const gasLimit = 60000;    const tx = await usdt.transfer(to, ethers.parseUnits(amount, 6), {     gasPrice: reducedGasPrice,     gasLimit   });    return res.json({ hash: tx.hash }); }
       const provider = new ethers.JsonRpcProvider(
         network === "eth"
           ? "https://ethereum.publicnode.com"
