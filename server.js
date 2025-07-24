@@ -1,5 +1,3 @@
-// multi-coin-wallet-api/server.js
-
 import express from "express";
 import cors from "cors";
 import * as bip39 from "bip39";
@@ -7,7 +5,11 @@ import * as bip32 from "bip32";
 import * as bitcoin from "bitcoinjs-lib";
 import { ethers, HDNodeWallet } from "ethers";
 import TronWeb from "tronweb";
-import { Keypair, Connection, SystemProgram, Transaction, PublicKey, sendAndConfirmTransaction } from "@solana/web3.js";
+import {
+  Keypair,
+  Connection,
+  PublicKey,
+} from "@solana/web3.js";
 import axios from "axios";
 
 const app = express();
@@ -31,94 +33,167 @@ const usdtContracts = {
 };
 
 app.post("/wallet", async (req, res) => {
-  const { mnemonic, coin, index = 0 } = req.body;
-  if (!bip39.validateMnemonic(mnemonic)) return res.status(400).json({ error: "Invalid mnemonic" });
-
+  const { coin, index = 0 } = req.body;
+  const mnemonic = bip39.generateMnemonic();
   const seed = await bip39.mnemonicToSeed(mnemonic);
-  const path = pathMap[coin];
-  if (!path) return res.status(400).json({ error: "Unsupported coin" });
-  const root = bip32.fromSeed(seed);
-  const child = root.derivePath(`${path}/${index}`);
+  const node = bip32.fromSeed(seed);
 
+  let address = "";
   if (coin === "btc" || coin === "ltc") {
-    const network = coin === "ltc"
-      ? { ...bitcoin.networks.bitcoin, bech32: 'ltc', pubKeyHash: 0x30, scriptHash: 0x32, wif: 0xb0 }
-      : bitcoin.networks.bitcoin;
-    const { address } = bitcoin.payments.p2wpkh({ pubkey: child.publicKey, network });
-    return res.json({ coin, address, privateKey: child.toWIF(), publicKey: child.publicKey.toString("hex") });
+    const network = coin === "ltc" ? bitcoin.networks.litecoin : bitcoin.networks.bitcoin;
+    const child = node.derivePath(pathMap[coin]);
+    const { address: addr } = bitcoin.payments.p2wpkh({
+      pubkey: child.publicKey,
+      network
+    });
+    address = addr;
+  } else if (coin === "eth" || coin === "bnb" || coin === "usdt") {
+    const hd = HDNodeWallet.fromMnemonic(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+    address = hd.address;
+  } else if (coin === "trx") {
+    const tron = node.derivePath(pathMap.trx + `/${index}`);
+    const pk = tron.privateKey.toString("hex");
+    const tw = new TronWeb();
+    address = tw.address.fromPrivateKey(pk);
+  } else if (coin === "sol") {
+    const key = Keypair.fromSeed(seed.slice(0, 32));
+    address = key.publicKey.toBase58();
   }
 
-  if (["eth", "bnb", "usdt"].includes(coin)) {
-    const wallet = HDNodeWallet.fromSeed(seed).derivePath(`${path}/${index}`);
-    return res.json({ coin, address: wallet.address, privateKey: wallet.privateKey, publicKey: wallet.publicKey });
-  }
-
-  if (coin === "trx") {
-    const tronWeb = new TronWeb();
-    const addr = tronWeb.address.fromPrivateKey(child.privateKey.toString("hex"));
-    return res.json({ coin, address: addr, privateKey: child.privateKey.toString("hex"), publicKey: child.publicKey.toString("hex") });
-  }
-
-  if (coin === "sol") {
-    const keypair = Keypair.fromSeed(child.privateKey.slice(0, 32));
-    return res.json({ coin, address: keypair.publicKey.toBase58(), privateKey: Buffer.from(keypair.secretKey).toString("hex") });
-  }
-
-  res.status(400).json({ error: "Unsupported coin" });
+  res.json({ mnemonic, coin, index, address });
 });
 
 app.get("/balance/:coin/:address", async (req, res) => {
   const { coin, address } = req.params;
   try {
     if (coin === "btc" || coin === "ltc") {
-      const url = `https://blockstream.info/${coin === 'ltc' ? 'ltc/' : ''}api/address/${address}`;
+      const url = coin === "btc"
+        ? `https://blockstream.info/api/address/${address}`
+        : `https://blockstream.info/ltc/api/address/${address}`;
       const { data } = await axios.get(url);
-      const balance = (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) / 1e8;
-      return res.json({ balance });
+      return res.json({ balance: data.chain_stats.funded_txo_sum / 1e8 - data.chain_stats.spent_txo_sum / 1e8 });
     }
-
-    if (coin === "eth") {
-      const provider = new ethers.JsonRpcProvider("https://ethereum.publicnode.com");
-      const bal = await provider.getBalance(address);
-      return res.json({ balance: ethers.formatEther(bal) });
+    if (coin === "eth" || coin === "bnb") {
+      const rpc = coin === "eth" ? "https://ethereum.publicnode.com" : "https://bsc.publicnode.com";
+      const provider = new ethers.JsonRpcProvider(rpc);
+      const balance = await provider.getBalance(address);
+      return res.json({ balance: ethers.formatEther(balance) });
     }
-
-    if (coin === "bnb") {
-      const provider = new ethers.JsonRpcProvider("https://bsc.publicnode.com");
-      const bal = await provider.getBalance(address);
-      return res.json({ balance: ethers.formatEther(bal) });
-    }
-
-    if (coin === "usdt") {
-      const network = address.startsWith("0x") ? "eth" : (address.startsWith("T") ? "trx" : "bnb");
-      if (network === "trx") {
-        const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io" });
-        const contract = await tronWeb.contract().at(usdtContracts.trx);
-        const result = await contract.balanceOf(address).call();
-        return res.json({ balance: parseFloat(result) / 1e6 });
-      } else {
-        const rpc = network === "eth" ? "https://ethereum.publicnode.com" : "https://bsc.publicnode.com";
-        const provider = new ethers.JsonRpcProvider(rpc);
-        const abi = ["function balanceOf(address) view returns (uint256)"];
-        const contract = new ethers.Contract(usdtContracts[network], abi, provider);
-        const bal = await contract.balanceOf(address);
-        return res.json({ balance: parseFloat(ethers.formatUnits(bal, 6)) });
-      }
-    }
-
     if (coin === "trx") {
-      const { data } = await axios.get(`https://api.trongrid.io/v1/accounts/${address}`);
-      const balance = data.data?.[0]?.balance || 0;
+      const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io" });
+      const balance = await tronWeb.trx.getBalance(address);
       return res.json({ balance: balance / 1e6 });
     }
-
     if (coin === "sol") {
       const conn = new Connection("https://api.mainnet-beta.solana.com");
-      const bal = await conn.getBalance(new PublicKey(address));
-      return res.json({ balance: bal / 1e9 });
+      const lamports = await conn.getBalance(new PublicKey(address));
+      return res.json({ balance: lamports / 1e9 });
     }
-
     res.status(400).json({ error: "Unsupported coin" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/balance/usdt/:network/:address", async (req, res) => {
+  const { network, address } = req.params;
+  try {
+    if (network === "trx") {
+      const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io" });
+      const contract = await tronWeb.contract().at(usdtContracts.trx);
+      const result = await contract.balanceOf(address).call();
+      return res.json({ balance: parseFloat(result) / 1e6 });
+    }
+    if (["eth", "bnb"].includes(network)) {
+      const rpc = network === "eth" ? "https://ethereum.publicnode.com" : "https://bsc.publicnode.com";
+      const provider = new ethers.JsonRpcProvider(rpc);
+      const abi = ["function balanceOf(address) view returns (uint256)"];
+      const contract = new ethers.Contract(usdtContracts[network], abi, provider);
+      const bal = await contract.balanceOf(address);
+      return res.json({ balance: parseFloat(ethers.formatUnits(bal, 6)) });
+    }
+    res.status(400).json({ error: "Unsupported network" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/txs/:coin/:address", async (req, res) => {
+  const { coin, address } = req.params;
+  try {
+    if (coin === "btc") {
+      const { data } = await axios.get(`https://blockstream.info/api/address/${address}/txs`);
+      return res.json(data);
+    }
+    if (coin === "ltc") {
+      const { data } = await axios.get(`https://blockstream.info/ltc/api/address/${address}/txs`);
+      return res.json(data);
+    }
+    if (coin === "eth") {
+      const { data } = await axios.get(`https://api.etherscan.io/api?module=account&action=txlist&address=${address}&sort=desc&apikey=YourApiKey`);
+      return res.json(data.result);
+    }
+    if (coin === "bnb") {
+      const { data } = await axios.get(`https://api.bscscan.com/api?module=account&action=txlist&address=${address}&sort=desc&apikey=YourApiKey`);
+      return res.json(data.result);
+    }
+    if (coin === "trx") {
+      const { data } = await axios.get(`https://api.trongrid.io/v1/accounts/${address}/transactions`);
+      return res.json(data.data);
+    }
+    if (coin === "sol") {
+      const conn = new Connection("https://api.mainnet-beta.solana.com");
+      const sigs = await conn.getConfirmedSignaturesForAddress2(new PublicKey(address));
+      return res.json(sigs);
+    }
+    res.status(400).json({ error: "Unsupported coin" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/fee/:coin", async (req, res) => {
+  const { coin } = req.params;
+  try {
+    if (coin === "eth" || coin === "bnb") {
+      const provider = new ethers.JsonRpcProvider(
+        coin === "eth" ? "https://ethereum.publicnode.com" : "https://bsc.publicnode.com"
+      );
+      const fee = await provider.getFeeData();
+      return res.json({ gasPrice: ethers.formatUnits(fee.gasPrice, "gwei") + " gwei" });
+    }
+    if (coin === "trx") {
+      const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io" });
+      const bandwidth = await tronWeb.trx.getBandwidth("TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf");
+      return res.json({ bandwidth });
+    }
+    if (coin === "btc" || coin === "ltc") {
+      const url = `https://mempool.space${coin === 'ltc' ? '/litecoin' : ''}/api/v1/fees/recommended`;
+      const { data } = await axios.get(url);
+      return res.json({ fastestFee: data.fastestFee + " sat/vB" });
+    }
+    if (coin === "sol") {
+      return res.json({ fee: "0.000005 SOL (fixed)" });
+    }
+    res.status(400).json({ error: "Unsupported coin" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/dashboard/:coin/:address", async (req, res) => {
+  const { coin, address } = req.params;
+  try {
+    const result = { coin, address, balance: 0, usdt: 0, txs: [] };
+    const balanceRes = await axios.get(`https://multi-coin-wallet-api.onrender.com/balance/${coin}/${address}`);
+    result.balance = balanceRes.data.balance;
+    if (["eth", "bnb", "trx"].includes(coin)) {
+      const usdtRes = await axios.get(`https://multi-coin-wallet-api.onrender.com/balance/usdt/${coin}/${address}`);
+      result.usdt = usdtRes.data.balance;
+    }
+    const txRes = await axios.get(`https://multi-coin-wallet-api.onrender.com/txs/${coin}/${address}`);
+    result.txs = txRes.data?.slice(0, 5) || [];
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
