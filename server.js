@@ -32,6 +32,7 @@ const usdtContracts = {
   trx: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 };
 
+// Generate Wallet
 app.post("/wallet", async (req, res) => {
   const { coin, index = 0 } = req.body;
   const mnemonic = bip39.generateMnemonic();
@@ -48,7 +49,7 @@ app.post("/wallet", async (req, res) => {
     });
     address = addr;
   } else if (coin === "eth" || coin === "bnb" || coin === "usdt") {
-    const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+    const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(`44'/60'/0'/0/${index}`);
     address = hd.address;
   } else if (coin === "trx") {
     const tron = node.derivePath(pathMap.trx + `/${index}`);
@@ -63,6 +64,7 @@ app.post("/wallet", async (req, res) => {
   res.json({ mnemonic, coin, index, address });
 });
 
+// Native Coin Balance
 app.get("/balance/:coin/:address", async (req, res) => {
   const { coin, address } = req.params;
   try {
@@ -95,6 +97,7 @@ app.get("/balance/:coin/:address", async (req, res) => {
   }
 });
 
+// USDT Token Balance
 app.get("/balance/usdt/:network/:address", async (req, res) => {
   const { network, address } = req.params;
   try {
@@ -118,6 +121,7 @@ app.get("/balance/usdt/:network/:address", async (req, res) => {
   }
 });
 
+// Transaction History
 app.get("/txs/:coin/:address", async (req, res) => {
   const { coin, address } = req.params;
   try {
@@ -152,6 +156,7 @@ app.get("/txs/:coin/:address", async (req, res) => {
   }
 });
 
+// Fee Estimate
 app.get("/fee/:coin", async (req, res) => {
   const { coin } = req.params;
   try {
@@ -181,6 +186,7 @@ app.get("/fee/:coin", async (req, res) => {
   }
 });
 
+// Dashboard Summary
 app.get("/dashboard/:coin/:address", async (req, res) => {
   const { coin, address } = req.params;
   try {
@@ -199,6 +205,7 @@ app.get("/dashboard/:coin/:address", async (req, res) => {
   }
 });
 
+// Send Tokens or Native Coins
 app.post("/send", async (req, res) => {
   const { mnemonic, coin, network, to, amount, index = 0 } = req.body;
   try {
@@ -208,7 +215,7 @@ app.post("/send", async (req, res) => {
           ? "https://ethereum.publicnode.com"
           : "https://bsc.publicnode.com"
       );
-      const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+      const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(`44'/60'/0'/0/${index}`);
       const signer = new ethers.Wallet(hd.privateKey, provider);
       const usdt = new ethers.Contract(usdtContracts[network], ["function transfer(address,uint256) returns (bool)"], signer);
       const tx = await usdt.transfer(to, ethers.parseUnits(amount, 6));
@@ -216,8 +223,8 @@ app.post("/send", async (req, res) => {
     }
 
     if (coin === "usdt" && network === "trx") {
-      const tron = bip39.mnemonicToSeedSync(mnemonic);
-      const node = bip32.fromSeed(tron);
+      const seed = await bip39.mnemonicToSeed(mnemonic);
+      const node = bip32.fromSeed(seed);
       const child = node.derivePath(pathMap.trx + `/${index}`);
       const privateKey = child.privateKey.toString("hex");
       const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io", privateKey });
@@ -232,7 +239,7 @@ app.post("/send", async (req, res) => {
           ? "https://ethereum.publicnode.com"
           : "https://bsc.publicnode.com"
       );
-      const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+      const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(`44'/60'/0'/0/${index}`);
       const signer = new ethers.Wallet(hd.privateKey, provider);
       const tx = await signer.sendTransaction({
         to,
@@ -242,7 +249,8 @@ app.post("/send", async (req, res) => {
     }
 
     if (coin === "trx") {
-      const node = bip32.fromSeed(await bip39.mnemonicToSeed(mnemonic));
+      const seed = await bip39.mnemonicToSeed(mnemonic);
+      const node = bip32.fromSeed(seed);
       const child = node.derivePath(pathMap.trx + `/${index}`);
       const tronWeb = new TronWeb({
         fullHost: "https://api.trongrid.io",
@@ -258,8 +266,6 @@ app.post("/send", async (req, res) => {
   }
 });
 
-
-
-
+// Start Server
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log("Wallet API running on port", port));
