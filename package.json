@@ -1,20 +1,20 @@
 {
   "name": "multi-coin-wallet-api",
   "version": "1.0.0",
-  "type": "module",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.95.2",
-    "axios": "^1.6.0",
-    "bip32": "^2.0.6",
+    "@solana/web3.js": "^1.93.5",
+    "axios": "^1.6.8",
+    "bip32": "^6.0.6",
     "bip39": "^3.1.0",
     "bitcoinjs-lib": "^6.1.0",
     "cors": "^2.8.5",
-    "ethers": "^6.11.0",
-    "express": "^4.18.2",
-    "tronweb": "^5.2.0"
+    "ethers": "^6.15.0",
+    "express": "^4.19.2",
+    "tronweb": "^5.3.0"
   }
 }
