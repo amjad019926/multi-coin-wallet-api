@@ -48,7 +48,7 @@ app.post("/wallet", async (req, res) => {
     });
     address = addr;
   } else if (coin === "eth" || coin === "bnb" || coin === "usdt") {
-    const hd = HDNodeWallet.fromMnemonic(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+    const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(pathMap[coin] + `/${index}`);
     address = hd.address;
   } else if (coin === "trx") {
     const tron = node.derivePath(pathMap.trx + `/${index}`);
@@ -208,7 +208,7 @@ app.post("/send", async (req, res) => {
           ? "https://ethereum.publicnode.com"
           : "https://bsc.publicnode.com"
       );
-      const hd = HDNodeWallet.fromMnemonic(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+      const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(pathMap[coin] + `/${index}`);
       const signer = new ethers.Wallet(hd.privateKey, provider);
       const usdt = new ethers.Contract(usdtContracts[network], ["function transfer(address,uint256) returns (bool)"], signer);
       const tx = await usdt.transfer(to, ethers.parseUnits(amount, 6));
@@ -232,7 +232,7 @@ app.post("/send", async (req, res) => {
           ? "https://ethereum.publicnode.com"
           : "https://bsc.publicnode.com"
       );
-      const hd = HDNodeWallet.fromMnemonic(mnemonic).derivePath(pathMap[coin] + `/${index}`);
+      const hd = HDNodeWallet.fromPhrase(mnemonic).derivePath(pathMap[coin] + `/${index}`);
       const signer = new ethers.Wallet(hd.privateKey, provider);
       const tx = await signer.sendTransaction({
         to,
