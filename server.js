@@ -71,9 +71,14 @@ app.get("/balance/:coin/:address", async (req, res) => {
       return res.json({ balance });
     }
 
-    if (["eth", "bnb"].includes(coin)) {
-      const rpc = coin === "eth" ? "https://rpc.ankr.com/eth" : "https://rpc.ankr.com/bsc";
-      const provider = new ethers.JsonRpcProvider(rpc);
+    if (coin === "eth") {
+      const provider = new ethers.JsonRpcProvider("https://ethereum.publicnode.com");
+      const bal = await provider.getBalance(address);
+      return res.json({ balance: ethers.formatEther(bal) });
+    }
+
+    if (coin === "bnb") {
+      const provider = new ethers.JsonRpcProvider("https://bsc.publicnode.com");
       const bal = await provider.getBalance(address);
       return res.json({ balance: ethers.formatEther(bal) });
     }
