@@ -26,7 +26,7 @@ const pathMap = {
 
 app.post("/wallet", async (req, res) => {
   const { mnemonic, coin, index = 0 } = req.body;
-  if (!bip39.validateMnemonic(mnnemonic)) return res.status(400).json({ error: "Invalid mnemonic" });
+  if (!bip39.validateMnemonic(mnemonic)) return res.status(400).json({ error: "Invalid mnemonic" });
 
   const seed = await bip39.mnemonicToSeed(mnemonic);
   const path = pathMap[coin];
@@ -67,7 +67,8 @@ app.get("/balance/:coin/:address", async (req, res) => {
     if (coin === "btc" || coin === "ltc") {
       const url = `https://blockstream.info/${coin === 'ltc' ? 'ltc/' : ''}api/address/${address}`;
       const { data } = await axios.get(url);
-      return res.json({ balance: data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum });
+      const balance = (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) / 1e8;
+      return res.json({ balance });
     }
 
     if (["eth", "bnb"].includes(coin)) {
@@ -79,7 +80,8 @@ app.get("/balance/:coin/:address", async (req, res) => {
 
     if (coin === "trx") {
       const { data } = await axios.get(`https://api.trongrid.io/v1/accounts/${address}`);
-      return res.json({ balance: data.data?.[0]?.balance || 0 });
+      const balance = data.data?.[0]?.balance || 0;
+      return res.json({ balance: balance / 1e6 });
     }
 
     if (coin === "sol") {
@@ -93,8 +95,6 @@ app.get("/balance/:coin/:address", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
-// /send endpoint code goes here (see previous message)
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log("Wallet API running on port", port));
