@@ -24,6 +24,12 @@ const pathMap = {
   sol: "m/44'/501'/0'/0'"
 };
 
+const usdtContracts = {
+  eth: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  bnb: "0x55d398326f99059fF775485246999027B3197955",
+  trx: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+};
+
 app.post("/wallet", async (req, res) => {
   const { mnemonic, coin, index = 0 } = req.body;
   if (!bip39.validateMnemonic(mnemonic)) return res.status(400).json({ error: "Invalid mnemonic" });
@@ -81,6 +87,23 @@ app.get("/balance/:coin/:address", async (req, res) => {
       const provider = new ethers.JsonRpcProvider("https://bsc.publicnode.com");
       const bal = await provider.getBalance(address);
       return res.json({ balance: ethers.formatEther(bal) });
+    }
+
+    if (coin === "usdt") {
+      const network = address.startsWith("0x") ? "eth" : (address.startsWith("T") ? "trx" : "bnb");
+      if (network === "trx") {
+        const tronWeb = new TronWeb({ fullHost: "https://api.trongrid.io" });
+        const contract = await tronWeb.contract().at(usdtContracts.trx);
+        const result = await contract.balanceOf(address).call();
+        return res.json({ balance: parseFloat(result) / 1e6 });
+      } else {
+        const rpc = network === "eth" ? "https://ethereum.publicnode.com" : "https://bsc.publicnode.com";
+        const provider = new ethers.JsonRpcProvider(rpc);
+        const abi = ["function balanceOf(address) view returns (uint256)"];
+        const contract = new ethers.Contract(usdtContracts[network], abi, provider);
+        const bal = await contract.balanceOf(address);
+        return res.json({ balance: parseFloat(ethers.formatUnits(bal, 6)) });
+      }
     }
 
     if (coin === "trx") {
